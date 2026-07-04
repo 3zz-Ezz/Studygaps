@@ -1,5 +1,20 @@
 import { useState, useEffect, useCallback } from "react";
+import { initializeApp } from "firebase/app";
+import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "firebase/firestore";
 
+// ── Firebase setup ────────────────────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyD7fP0pT0uc2jll4PInETCwQDxRxfDvuVk",
+  authDomain: "studygaps.firebaseapp.com",
+  projectId: "studygaps",
+  storageBucket: "studygaps.firebasestorage.app",
+  messagingSenderId: "886975634095",
+  appId: "1:886975634095:web:1da972970ee4f797dc525a",
+};
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
+
+// ── helpers ───────────────────────────────────────────────────────────────────
 const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 const TODAY_IDX = () => { const d = new Date().getDay(); return d === 0 ? 6 : d - 1; };
 const toMins = (t) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
@@ -11,22 +26,13 @@ const DAY_START = 7 * 60, DAY_END = 23 * 60;
 const CLASS_COLORS = ["#6C63FF","#FF8C42","#2DD4A0","#E056C0","#3B9EFF","#F5D76E","#FF6B6B"];
 const MEMBER_COLORS = ["#6C63FF","#2DD4A0","#FF8C42","#E056C0","#3B9EFF","#FF6B6B","#F5D76E"];
 
-// storage
-async function sload(key, shared = false) {
-  try { const r = await window.storage.get(key, shared); return r ? JSON.parse(r.value) : null; }
-  catch { return null; }
-}
-async function ssave(key, val, shared = false) {
-  try { await window.storage.set(key, JSON.stringify(val), shared); } catch {}
-}
+// ── local storage ─────────────────────────────────────────────────────────────
+function lload(key) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch { return null; } }
+function lsave(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
 
-// ui atoms
+// ── ui atoms ──────────────────────────────────────────────────────────────────
 function Badge({ color, label }) {
-  return (
-    <span style={{ background: color + "22", color, border: `1px solid ${color}55`, borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>
-      {label}
-    </span>
-  );
+  return <span style={{ background: color + "22", color, border: `1px solid ${color}55`, borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>{label}</span>;
 }
 
 function Modal({ onClose, children, title }) {
@@ -57,9 +63,7 @@ function Sel({ label, children, ...props }) {
   return (
     <div style={{ marginBottom: 14 }}>
       {label && <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 6 }}>{label}</div>}
-      <select {...props} style={{ width: "100%", background: "#0F1117", border: "1px solid #2A2D3E", borderRadius: 8, padding: "10px 12px", color: "#E8E9F0", fontSize: 14, outline: "none", boxSizing: "border-box" }}>
-        {children}
-      </select>
+      <select {...props} style={{ width: "100%", background: "#0F1117", border: "1px solid #2A2D3E", borderRadius: 8, padding: "10px 12px", color: "#E8E9F0", fontSize: 14, outline: "none", boxSizing: "border-box" }}>{children}</select>
     </div>
   );
 }
@@ -111,23 +115,17 @@ function Timeline({ classes, onGapClick }) {
   return (
     <div>
       <div style={{ position: "relative", height: 18, marginBottom: 4 }}>
-        {ticks.map(h => (
-          <span key={h} style={{ position: "absolute", left: `${pct(h * 60)}%`, transform: "translateX(-50%)", fontSize: 10, color: "#4B5063" }}>
-            {h % 12 || 12}{h < 12 ? "am" : "pm"}
-          </span>
-        ))}
+        {ticks.map(h => <span key={h} style={{ position: "absolute", left: `${pct(h * 60)}%`, transform: "translateX(-50%)", fontSize: 10, color: "#4B5063" }}>{h % 12 || 12}{h < 12 ? "am" : "pm"}</span>)}
       </div>
       <div style={{ position: "relative", height: 44, background: "#0F1117", borderRadius: 8, overflow: "hidden", border: "1px solid #2A2D3E" }}>
         {gaps.map((g, i) => (
           <div key={i} onClick={() => onGapClick && onGapClick(g)}
             style={{ position: "absolute", top: 0, bottom: 0, left: `${pct(g.start)}%`, width: `${pct(g.end) - pct(g.start)}%`, background: "#2DD4A018", borderLeft: "2px solid #2DD4A0", cursor: onGapClick ? "pointer" : "default" }}
             onMouseEnter={e => e.currentTarget.style.background = "#2DD4A030"}
-            onMouseLeave={e => e.currentTarget.style.background = "#2DD4A018"}
-          />
+            onMouseLeave={e => e.currentTarget.style.background = "#2DD4A018"} />
         ))}
         {sorted.map(c => (
-          <div key={c.id}
-            style={{ position: "absolute", top: 4, bottom: 4, left: `${pct(toMins(c.startTime))}%`, width: `${pct(toMins(c.endTime)) - pct(toMins(c.startTime))}%`, background: c.color || "#6C63FF", borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", fontSize: 10, fontWeight: 700, color: "#fff", padding: "0 4px" }}>
+          <div key={c.id} style={{ position: "absolute", top: 4, bottom: 4, left: `${pct(toMins(c.startTime))}%`, width: `${pct(toMins(c.endTime)) - pct(toMins(c.startTime))}%`, background: c.color || "#6C63FF", borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", fontSize: 10, fontWeight: 700, color: "#fff", padding: "0 4px" }}>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.subject}</span>
           </div>
         ))}
@@ -150,7 +148,7 @@ function Timeline({ classes, onGapClick }) {
   );
 }
 
-// ── Group Tab ─────────────────────────────────────────────────────────────────
+// ── Group Tab with Firebase ───────────────────────────────────────────────────
 function GroupTab() {
   const [view, setView] = useState("lobby");
   const [room, setRoom] = useState(null);
@@ -163,31 +161,32 @@ function GroupTab() {
   const [editForm, setEditForm] = useState({ subtask: "", pct: 0, progressNote: "", done: false });
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
 
+  // restore session and subscribe to room
   useEffect(() => {
-    (async () => {
-      const session = await sload("group_session");
-      if (session?.roomCode && session?.memberId) {
-        const roomData = await sload(`room:${session.roomCode}`, true);
-        if (roomData) { setRoom(roomData); setMyId(session.memberId); setView("room"); }
-      }
+    const session = lload("group_session");
+    if (session?.roomCode && session?.memberId) {
+      const unsub = onSnapshot(doc(db, "rooms", session.roomCode), (snap) => {
+        if (snap.exists()) {
+          setRoom(snap.data());
+          setMyId(session.memberId);
+          setView("room");
+        }
+      });
       setLoading(false);
-    })();
+      return () => unsub();
+    }
+    setLoading(false);
   }, []);
 
-  const refreshRoom = useCallback(async (code) => {
-    setRefreshing(true);
-    const roomData = await sload(`room:${code}`, true);
-    if (roomData) setRoom(roomData);
-    setRefreshing(false);
-  }, []);
-
+  // subscribe when entering room
   useEffect(() => {
-    if (view !== "room" || !room) return;
-    const id = setInterval(() => refreshRoom(room.code), 10000);
-    return () => clearInterval(id);
-  }, [view, room, refreshRoom]);
+    if (view !== "room" || !room?.code) return;
+    const unsub = onSnapshot(doc(db, "rooms", room.code), (snap) => {
+      if (snap.exists()) setRoom(snap.data());
+    });
+    return () => unsub();
+  }, [view, room?.code]);
 
   const createRoom = async () => {
     if (!createForm.projectName.trim() || !createForm.myName.trim()) { setError("Fill in all fields"); return; }
@@ -197,26 +196,27 @@ function GroupTab() {
       code, projectName: createForm.projectName.trim(), createdAt: new Date().toISOString(),
       members: [{ id: memberId, name: createForm.myName.trim(), subtask: "", pct: 0, progressNote: "", done: false, color: MEMBER_COLORS[0] }]
     };
-    await ssave(`room:${code}`, newRoom, true);
-    await ssave("group_session", { roomCode: code, memberId });
+    await setDoc(doc(db, "rooms", code), newRoom);
+    lsave("group_session", { roomCode: code, memberId });
     setRoom(newRoom); setMyId(memberId); setView("room"); setError("");
   };
 
   const joinRoom = async () => {
     const code = joinForm.code.trim().toUpperCase();
     if (!code || !joinForm.name.trim()) { setError("Fill in all fields"); return; }
-    const roomData = await sload(`room:${code}`, true);
-    if (!roomData) { setError("Room not found. Check the code."); return; }
+    const snap = await getDoc(doc(db, "rooms", code));
+    if (!snap.exists()) { setError("Room not found. Check the code."); return; }
+    const roomData = snap.data();
     const memberId = uid();
     const colorIdx = roomData.members.length % MEMBER_COLORS.length;
     const updated = { ...roomData, members: [...roomData.members, { id: memberId, name: joinForm.name.trim(), subtask: "", pct: 0, progressNote: "", done: false, color: MEMBER_COLORS[colorIdx] }] };
-    await ssave(`room:${code}`, updated, true);
-    await ssave("group_session", { roomCode: code, memberId });
+    await setDoc(doc(db, "rooms", code), updated);
+    lsave("group_session", { roomCode: code, memberId });
     setRoom(updated); setMyId(memberId); setView("room"); setError("");
   };
 
-  const leaveRoom = async () => {
-    await ssave("group_session", null);
+  const leaveRoom = () => {
+    lsave("group_session", null);
     setRoom(null); setMyId(null); setView("lobby");
   };
 
@@ -228,8 +228,8 @@ function GroupTab() {
 
   const saveEdit = async () => {
     const updated = { ...room, members: room.members.map(m => m.id === myId ? { ...m, ...editForm } : m) };
-    await ssave(`room:${room.code}`, updated, true);
-    setRoom(updated); setEditModal(false);
+    await setDoc(doc(db, "rooms", room.code), updated);
+    setEditModal(false);
   };
 
   const copyCode = () => {
@@ -292,12 +292,7 @@ function GroupTab() {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        <Btn variant="teal" style={{ flex: 1, padding: "8px 0", fontSize: 13 }} onClick={() => refreshRoom(room.code)}>
-          {refreshing ? "Refreshing..." : "↻ Refresh"}
-        </Btn>
-        <Btn variant="ghost" style={{ padding: "8px 14px", fontSize: 13 }} onClick={leaveRoom}>Leave</Btn>
-      </div>
+      <Btn variant="ghost" style={{ width: "100%", padding: "8px 0", fontSize: 13, marginBottom: 16 }} onClick={leaveRoom}>Leave Room</Btn>
 
       <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: .5 }}>Members</div>
 
@@ -369,9 +364,8 @@ function GroupTab() {
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [tab, setTab] = useState("today");
-  const [schedule, setSchedule] = useState([]);
-  const [assignments, setAssignments] = useState([]);
-  const [loaded, setLoaded] = useState(false);
+  const [schedule, setSchedule] = useState(() => lload("sched_v1") || []);
+  const [assignments, setAssignments] = useState(() => lload("assign_v1") || []);
   const [classModal, setClassModal] = useState(false);
   const [assignModal, setAssignModal] = useState(null);
   const [progressModal, setProgressModal] = useState(null);
@@ -381,50 +375,22 @@ export default function App() {
   const [newTask, setNewTask] = useState("");
   const [stopNote, setStopNote] = useState("");
 
-  useEffect(() => {
-    (async () => {
-      const s = await sload("sched_v1");
-      const a = await sload("assign_v1");
-      if (s) setSchedule(s);
-      if (a) setAssignments(a);
-      setLoaded(true);
-    })();
-  }, []);
-
-  useEffect(() => { if (loaded) ssave("sched_v1", schedule); }, [schedule, loaded]);
-  useEffect(() => { if (loaded) ssave("assign_v1", assignments); }, [assignments, loaded]);
+  useEffect(() => { lsave("sched_v1", schedule); }, [schedule]);
+  useEffect(() => { lsave("assign_v1", assignments); }, [assignments]);
 
   const todayIdx = TODAY_IDX();
   const todayClasses = schedule.filter(c => DAYS.indexOf(c.day) === todayIdx).sort((a, b) => toMins(a.startTime) - toMins(b.startTime));
   const pendingAssign = assignments.filter(a => !a.done);
 
-  const addClass = () => {
-    if (!cForm.subject.trim()) return;
-    setSchedule(s => [...s, { ...cForm, id: uid() }]);
-    setCForm({ subject: "", day: "Monday", startTime: "08:00", endTime: "09:00", color: "#6C63FF" });
-    setClassModal(false);
-  };
+  const addClass = () => { if (!cForm.subject.trim()) return; setSchedule(s => [...s, { ...cForm, id: uid() }]); setCForm({ subject: "", day: "Monday", startTime: "08:00", endTime: "09:00", color: "#6C63FF" }); setClassModal(false); };
   const deleteClass = (id) => setSchedule(s => s.filter(c => c.id !== id));
-  const addAssignment = () => {
-    if (!aForm.title.trim()) return;
-    setAssignments(s => [...s, { ...aForm, id: uid(), subtasks: [], lastStopped: "", done: false }]);
-    setAForm({ title: "", dueDate: "", estimatedHours: "", notes: "" });
-    setAssignModal(null);
-  };
+  const addAssignment = () => { if (!aForm.title.trim()) return; setAssignments(s => [...s, { ...aForm, id: uid(), subtasks: [], lastStopped: "", done: false }]); setAForm({ title: "", dueDate: "", estimatedHours: "", notes: "" }); setAssignModal(null); };
   const updateAssignment = useCallback((id, patch) => setAssignments(s => s.map(a => a.id === id ? { ...a, ...patch } : a)), []);
   const deleteAssignment = (id) => setAssignments(s => s.filter(a => a.id !== id));
-  const addSubtask = (id) => {
-    if (!newTask.trim()) return;
-    setAssignments(s => s.map(a => a.id === id ? { ...a, subtasks: [...a.subtasks, { id: uid(), text: newTask.trim(), done: false }] } : a));
-    setNewTask("");
-  };
+  const addSubtask = (id) => { if (!newTask.trim()) return; setAssignments(s => s.map(a => a.id === id ? { ...a, subtasks: [...a.subtasks, { id: uid(), text: newTask.trim(), done: false }] } : a)); setNewTask(""); };
   const updateSubtask = (aid, task) => setAssignments(s => s.map(a => a.id === aid ? { ...a, subtasks: a.subtasks.map(t => t.id === task.id ? task : t) } : a));
   const deleteSubtask = (aid, tid) => setAssignments(s => s.map(a => a.id === aid ? { ...a, subtasks: a.subtasks.filter(t => t.id !== tid) } : a));
   const saveStop = (id) => { updateAssignment(id, { lastStopped: stopNote }); setProgressModal(null); setStopNote(""); };
-
-  if (!loaded) {
-    return <div style={{ background: "#0F1117", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#9CA3AF" }}>Loading...</div>;
-  }
 
   const TodayView = () => {
     const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
@@ -440,39 +406,17 @@ export default function App() {
     const upcomingGaps = gaps.filter(g => g.end > nowMins);
     const nextClass = sorted.find(c => toMins(c.startTime) > nowMins);
     const inClass = sorted.find(c => toMins(c.startTime) <= nowMins && toMins(c.endTime) > nowMins);
-
     return (
       <div>
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 22, fontWeight: 800, color: "#E8E9F0" }}>{DAYS[todayIdx]}</div>
           <div style={{ fontSize: 13, color: "#9CA3AF", marginTop: 2 }}>{new Date().toLocaleDateString("en-MY", { day: "numeric", month: "long", year: "numeric" })}</div>
         </div>
-        {inClass && (
-          <div style={{ background: "#6C63FF22", border: "1px solid #6C63FF44", borderRadius: 10, padding: "10px 14px", marginBottom: 16, display: "flex", gap: 10, alignItems: "center" }}>
-            <span style={{ fontSize: 18 }}>📚</span>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#6C63FF" }}>In class: {inClass.subject}</div>
-              <div style={{ fontSize: 12, color: "#9CA3AF" }}>Ends at {fmtTime(inClass.endTime)}</div>
-            </div>
-          </div>
-        )}
-        {nextClass && !inClass && (
-          <div style={{ background: "#FF8C4222", border: "1px solid #FF8C4244", borderRadius: 10, padding: "10px 14px", marginBottom: 16, display: "flex", gap: 10, alignItems: "center" }}>
-            <span style={{ fontSize: 18 }}>⏰</span>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#FF8C42" }}>Next: {nextClass.subject}</div>
-              <div style={{ fontSize: 12, color: "#9CA3AF" }}>Starts at {fmtTime(nextClass.startTime)}</div>
-            </div>
-          </div>
-        )}
+        {inClass && <div style={{ background: "#6C63FF22", border: "1px solid #6C63FF44", borderRadius: 10, padding: "10px 14px", marginBottom: 16, display: "flex", gap: 10, alignItems: "center" }}><span style={{ fontSize: 18 }}>📚</span><div><div style={{ fontSize: 13, fontWeight: 700, color: "#6C63FF" }}>In class: {inClass.subject}</div><div style={{ fontSize: 12, color: "#9CA3AF" }}>Ends at {fmtTime(inClass.endTime)}</div></div></div>}
+        {nextClass && !inClass && <div style={{ background: "#FF8C4222", border: "1px solid #FF8C4244", borderRadius: 10, padding: "10px 14px", marginBottom: 16, display: "flex", gap: 10, alignItems: "center" }}><span style={{ fontSize: 18 }}>⏰</span><div><div style={{ fontSize: 13, fontWeight: 700, color: "#FF8C42" }}>Next: {nextClass.subject}</div><div style={{ fontSize: 12, color: "#9CA3AF" }}>Starts at {fmtTime(nextClass.startTime)}</div></div></div>}
         <div style={{ background: "#1A1E2E", borderRadius: 12, padding: 16, marginBottom: 20, border: "1px solid #2A2D3E" }}>
           <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: .5 }}>Today's Timeline</div>
-          {todayClasses.length === 0 && schedule.length === 0
-            ? <div style={{ fontSize: 13, color: "#4B5063", textAlign: "center", padding: "16px 0" }}>No classes added yet. Go to Schedule.</div>
-            : todayClasses.length === 0
-            ? <div style={{ fontSize: 13, color: "#4B5063", textAlign: "center", padding: "16px 0" }}>No classes today — full day free!</div>
-            : <Timeline classes={todayClasses} onGapClick={setGapModal} />
-          }
+          {todayClasses.length === 0 && schedule.length === 0 ? <div style={{ fontSize: 13, color: "#4B5063", textAlign: "center", padding: "16px 0" }}>No classes added yet.</div> : todayClasses.length === 0 ? <div style={{ fontSize: 13, color: "#4B5063", textAlign: "center", padding: "16px 0" }}>No classes today — full day free!</div> : <Timeline classes={todayClasses} onGapClick={setGapModal} />}
         </div>
         {upcomingGaps.length > 0 && (
           <div style={{ marginBottom: 20 }}>
@@ -494,36 +438,24 @@ export default function App() {
         )}
         <div>
           <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: .5 }}>Pending Work</div>
-          {pendingAssign.length === 0
-            ? <div style={{ fontSize: 13, color: "#4B5063", textAlign: "center", padding: "16px 0" }}>All clear.</div>
-            : pendingAssign.slice(0, 4).map(a => {
-                const done = a.subtasks.filter(t => t.done).length;
-                const total = a.subtasks.length;
-                const p = total ? Math.round(done / total * 100) : 0;
-                return (
-                  <div key={a.id} style={{ background: "#1A1E2E", borderRadius: 10, padding: "12px 14px", marginBottom: 8, border: "1px solid #2A2D3E" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: "#E8E9F0" }}>{a.title}</div>
-                        {a.dueDate && <div style={{ fontSize: 11, color: "#FF8C42", marginTop: 2 }}>Due {a.dueDate}</div>}
-                        {a.lastStopped && <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 4, fontStyle: "italic" }}>Stopped: {a.lastStopped}</div>}
-                      </div>
-                      <Btn variant="ghost" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => { setProgressModal(a); setStopNote(a.lastStopped || ""); }}>Update</Btn>
-                    </div>
-                    {total > 0 && (
-                      <div style={{ marginTop: 10 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#9CA3AF", marginBottom: 4 }}>
-                          <span>{done}/{total} done</span><span>{p}%</span>
-                        </div>
-                        <div style={{ height: 4, background: "#2A2D3E", borderRadius: 2 }}>
-                          <div style={{ height: "100%", width: `${p}%`, background: "#6C63FF", borderRadius: 2, transition: "width .3s" }} />
-                        </div>
-                      </div>
-                    )}
+          {pendingAssign.length === 0 ? <div style={{ fontSize: 13, color: "#4B5063", textAlign: "center", padding: "16px 0" }}>All clear.</div> : pendingAssign.slice(0, 4).map(a => {
+            const done = a.subtasks.filter(t => t.done).length;
+            const total = a.subtasks.length;
+            const p = total ? Math.round(done / total * 100) : 0;
+            return (
+              <div key={a.id} style={{ background: "#1A1E2E", borderRadius: 10, padding: "12px 14px", marginBottom: 8, border: "1px solid #2A2D3E" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#E8E9F0" }}>{a.title}</div>
+                    {a.dueDate && <div style={{ fontSize: 11, color: "#FF8C42", marginTop: 2 }}>Due {a.dueDate}</div>}
+                    {a.lastStopped && <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 4, fontStyle: "italic" }}>Stopped: {a.lastStopped}</div>}
                   </div>
-                );
-              })
-          }
+                  <Btn variant="ghost" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => { setProgressModal(a); setStopNote(a.lastStopped || ""); }}>Update</Btn>
+                </div>
+                {total > 0 && <div style={{ marginTop: 10 }}><div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#9CA3AF", marginBottom: 4 }}><span>{done}/{total} done</span><span>{p}%</span></div><div style={{ height: 4, background: "#2A2D3E", borderRadius: 2 }}><div style={{ height: "100%", width: `${p}%`, background: "#6C63FF", borderRadius: 2 }} /></div></div>}
+              </div>
+            );
+          })}
         </div>
       </div>
     );
@@ -543,19 +475,16 @@ export default function App() {
             <div style={{ fontSize: 12, fontWeight: 700, color: di === todayIdx ? "#6C63FF" : "#9CA3AF", textTransform: "uppercase", letterSpacing: .5, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
               {day} {di === todayIdx && <Badge color="#6C63FF" label="Today" />}
             </div>
-            {classes.length === 0
-              ? <div style={{ fontSize: 12, color: "#4B5063", padding: "8px 0" }}>No classes</div>
-              : classes.map(c => (
-                <div key={c.id} style={{ background: "#1A1E2E", borderRadius: 10, padding: "10px 14px", marginBottom: 6, border: "1px solid #2A2D3E", display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: c.color, flexShrink: 0 }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: "#E8E9F0" }}>{c.subject}</div>
-                    <div style={{ fontSize: 12, color: "#9CA3AF" }}>{fmtTime(c.startTime)} – {fmtTime(c.endTime)}</div>
-                  </div>
-                  <button onClick={() => deleteClass(c.id)} style={{ background: "none", border: "none", color: "#4B5063", cursor: "pointer", fontSize: 18 }}>×</button>
+            {classes.length === 0 ? <div style={{ fontSize: 12, color: "#4B5063", padding: "8px 0" }}>No classes</div> : classes.map(c => (
+              <div key={c.id} style={{ background: "#1A1E2E", borderRadius: 10, padding: "10px 14px", marginBottom: 6, border: "1px solid #2A2D3E", display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ width: 10, height: 10, borderRadius: "50%", background: c.color, flexShrink: 0 }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#E8E9F0" }}>{c.subject}</div>
+                  <div style={{ fontSize: 12, color: "#9CA3AF" }}>{fmtTime(c.startTime)} – {fmtTime(c.endTime)}</div>
                 </div>
-              ))
-            }
+                <button onClick={() => deleteClass(c.id)} style={{ background: "none", border: "none", color: "#4B5063", cursor: "pointer", fontSize: 18 }}>×</button>
+              </div>
+            ))}
           </div>
         );
       })}
@@ -595,15 +524,9 @@ export default function App() {
             {a.lastStopped && <div style={{ marginTop: 10, marginLeft: 24, padding: "8px 12px", background: "#0F1117", borderRadius: 8, fontSize: 12, color: "#9CA3AF", borderLeft: "2px solid #6C63FF" }}>📌 {a.lastStopped}</div>}
             {total > 0 && (
               <div style={{ marginTop: 12, marginLeft: 24 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#9CA3AF", marginBottom: 4 }}>
-                  <span>Progress</span><span>{done}/{total} — {p}%</span>
-                </div>
-                <div style={{ height: 4, background: "#2A2D3E", borderRadius: 2 }}>
-                  <div style={{ height: "100%", width: `${p}%`, background: "#6C63FF", borderRadius: 2 }} />
-                </div>
-                <div style={{ marginTop: 10 }}>
-                  {a.subtasks.map(t => <TaskItem key={t.id} task={t} onChange={updated => updateSubtask(a.id, updated)} onDelete={() => deleteSubtask(a.id, t.id)} />)}
-                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#9CA3AF", marginBottom: 4 }}><span>Progress</span><span>{done}/{total} — {p}%</span></div>
+                <div style={{ height: 4, background: "#2A2D3E", borderRadius: 2 }}><div style={{ height: "100%", width: `${p}%`, background: "#6C63FF", borderRadius: 2 }} /></div>
+                <div style={{ marginTop: 10 }}>{a.subtasks.map(t => <TaskItem key={t.id} task={t} onChange={updated => updateSubtask(a.id, updated)} onDelete={() => deleteSubtask(a.id, t.id)} />)}</div>
               </div>
             )}
             <div style={{ display: "flex", gap: 8, marginTop: 12, marginLeft: 24 }}>
@@ -649,9 +572,7 @@ export default function App() {
       {classModal && (
         <Modal title="Add Class" onClose={() => setClassModal(false)}>
           <Field label="Subject name" placeholder="e.g. PPYF103" value={cForm.subject} onChange={e => setCForm(f => ({ ...f, subject: e.target.value }))} />
-          <Sel label="Day" value={cForm.day} onChange={e => setCForm(f => ({ ...f, day: e.target.value }))}>
-            {DAYS.map(d => <option key={d}>{d}</option>)}
-          </Sel>
+          <Sel label="Day" value={cForm.day} onChange={e => setCForm(f => ({ ...f, day: e.target.value }))}>{DAYS.map(d => <option key={d}>{d}</option>)}</Sel>
           <div style={{ display: "flex", gap: 10 }}>
             <Field label="Start time" type="time" value={cForm.startTime} onChange={e => setCForm(f => ({ ...f, startTime: e.target.value }))} />
             <Field label="End time" type="time" value={cForm.endTime} onChange={e => setCForm(f => ({ ...f, endTime: e.target.value }))} />
@@ -659,9 +580,7 @@ export default function App() {
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 8 }}>Color</div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {CLASS_COLORS.map(c => (
-                <div key={c} onClick={() => setCForm(f => ({ ...f, color: c }))} style={{ width: 28, height: 28, borderRadius: "50%", background: c, cursor: "pointer", outline: cForm.color === c ? "3px solid #fff" : "none", outlineOffset: 2 }} />
-              ))}
+              {CLASS_COLORS.map(c => <div key={c} onClick={() => setCForm(f => ({ ...f, color: c }))} style={{ width: 28, height: 28, borderRadius: "50%", background: c, cursor: "pointer", outline: cForm.color === c ? "3px solid #fff" : "none", outlineOffset: 2 }} />)}
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -690,17 +609,13 @@ export default function App() {
             <>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#E8E9F0", marginBottom: 16 }}>{assignModal.title}</div>
               <div style={{ marginBottom: 8, fontSize: 12, color: "#9CA3AF", fontWeight: 600, textTransform: "uppercase", letterSpacing: .5 }}>Subtasks</div>
-              {assignModal.subtasks.map(t => (
-                <TaskItem key={t.id} task={t} onChange={updated => updateSubtask(assignModal.id, updated)} onDelete={() => deleteSubtask(assignModal.id, t.id)} />
-              ))}
+              {assignModal.subtasks.map(t => <TaskItem key={t.id} task={t} onChange={updated => updateSubtask(assignModal.id, updated)} onDelete={() => deleteSubtask(assignModal.id, t.id)} />)}
               <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                 <input value={newTask} onChange={e => setNewTask(e.target.value)} onKeyDown={e => e.key === "Enter" && addSubtask(assignModal.id)} placeholder="Add a task and press Enter..."
                   style={{ flex: 1, background: "#0F1117", border: "1px solid #2A2D3E", borderRadius: 8, padding: "10px 12px", color: "#E8E9F0", fontSize: 13, outline: "none" }} />
                 <Btn onClick={() => addSubtask(assignModal.id)}>+</Btn>
               </div>
-              <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
-                <Btn onClick={() => setAssignModal(null)}>Done</Btn>
-              </div>
+              <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}><Btn onClick={() => setAssignModal(null)}>Done</Btn></div>
             </>
           )}
         </Modal>
@@ -725,26 +640,21 @@ export default function App() {
             <div style={{ fontSize: 13, color: "#9CA3AF", marginTop: 4 }}>{gapModal.end - gapModal.start} minutes available</div>
           </div>
           <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: .5 }}>What to work on</div>
-          {pendingAssign.length === 0
-            ? <div style={{ color: "#4B5063", fontSize: 13, textAlign: "center", padding: "20px 0" }}>No pending assignments!</div>
-            : pendingAssign.map(a => {
-                const nextTask = a.subtasks.find(t => !t.done);
-                const done = a.subtasks.filter(t => t.done).length;
-                const total = a.subtasks.length;
-                return (
-                  <div key={a.id} style={{ background: "#1A1E2E", borderRadius: 10, padding: "12px 14px", marginBottom: 8, border: "1px solid #2A2D3E" }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: "#E8E9F0" }}>{a.title}</div>
-                    {a.dueDate && <div style={{ fontSize: 11, color: "#FF8C42", marginTop: 2 }}>Due {a.dueDate}</div>}
-                    {a.lastStopped && <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 4, fontStyle: "italic" }}>Last stopped: {a.lastStopped}</div>}
-                    {nextTask && <div style={{ marginTop: 8, padding: "6px 10px", background: "#6C63FF15", borderRadius: 6, fontSize: 12, color: "#A99EFF" }}>Next: {nextTask.text}</div>}
-                    {total > 0 && <div style={{ marginTop: 8, height: 3, background: "#2A2D3E", borderRadius: 2 }}><div style={{ height: "100%", width: `${Math.round(done / total * 100)}%`, background: "#6C63FF", borderRadius: 2 }} /></div>}
-                  </div>
-                );
-              })
-          }
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
-            <Btn onClick={() => setGapModal(null)}>Got it</Btn>
-          </div>
+          {pendingAssign.length === 0 ? <div style={{ color: "#4B5063", fontSize: 13, textAlign: "center", padding: "20px 0" }}>No pending assignments!</div> : pendingAssign.map(a => {
+            const nextTask = a.subtasks.find(t => !t.done);
+            const done = a.subtasks.filter(t => t.done).length;
+            const total = a.subtasks.length;
+            return (
+              <div key={a.id} style={{ background: "#1A1E2E", borderRadius: 10, padding: "12px 14px", marginBottom: 8, border: "1px solid #2A2D3E" }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#E8E9F0" }}>{a.title}</div>
+                {a.dueDate && <div style={{ fontSize: 11, color: "#FF8C42", marginTop: 2 }}>Due {a.dueDate}</div>}
+                {a.lastStopped && <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 4, fontStyle: "italic" }}>Last stopped: {a.lastStopped}</div>}
+                {nextTask && <div style={{ marginTop: 8, padding: "6px 10px", background: "#6C63FF15", borderRadius: 6, fontSize: 12, color: "#A99EFF" }}>Next: {nextTask.text}</div>}
+                {total > 0 && <div style={{ marginTop: 8, height: 3, background: "#2A2D3E", borderRadius: 2 }}><div style={{ height: "100%", width: `${Math.round(done / total * 100)}%`, background: "#6C63FF", borderRadius: 2 }} /></div>}
+              </div>
+            );
+          })}
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}><Btn onClick={() => setGapModal(null)}>Got it</Btn></div>
         </Modal>
       )}
     </div>
